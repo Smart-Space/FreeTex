@@ -16,6 +16,7 @@ from PyQt5.QtCore import (
     QFile,
     QIODevice,
     QTextStream,
+    QCoreApplication,
 )
 from PyQt5.QtGui import (
     QPixmap,
@@ -40,13 +41,13 @@ from PyQt5.QtWidgets import (
     QMenu,
 )
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from tools.screenshot import ScreenshotOverlay
 from tools.clipboard_handler import ClipboardHandler
 from tools.local_processor import LocalProcessor
 
 from qfluentwidgets import (
     PushButton as FluentPushButton,
     FluentIcon as FIF,
+    SwitchButton,
     SimpleCardWidget,
     ImageLabel,
     TextEdit,
@@ -55,7 +56,7 @@ from qfluentwidgets import (
 )
 
 # 软件版本号常量
-SOFTWARE_VERSION = "v0.3.0"
+SOFTWARE_VERSION = "Kilin-Edition"
 
 
 def render_latex_to_html(latex_code):
@@ -117,7 +118,7 @@ class ModelStatusWidget(QWidget):
         self.statusIndicator.setStyleSheet(
             "background-color: #2ecc71; border-radius: 6px;"
         )  # Green color
-        self.statusText.setText("模型已加载完成")
+        self.statusText.setText(f"模型已加载完成 ({device_info})")
 
     def setLoading(self):
         """设置模型加载中状态"""
@@ -137,7 +138,7 @@ class ModelStatusWidget(QWidget):
 class MainWindow(QMainWindow):
     """主窗口类"""
 
-    process_request = pyqtSignal(QPixmap)
+    process_request = pyqtSignal(QPixmap, int)
 
     def __init__(self):
         """
@@ -195,6 +196,8 @@ class MainWindow(QMainWindow):
         self.local_processor.finished.connect(self.on_recognition_finished)
         # 4. 主线程请求处理图片 -> 触发处理器处理图片 (使用新信号)
         self.process_request.connect(self.local_processor.process_pixmap)
+        # 5. 处理图片反转 -> 是否反转
+        self.local_processor.reverse_img.connect(self.on_reverse_img)
 
         # 启动处理器线程 (模型加载将在线程启动后自动触发)
         self.processor_thread.start()
@@ -203,8 +206,8 @@ class MainWindow(QMainWindow):
         self.initWindow()
         # 初始化UI状态：模型加载中，禁用相关按钮
         self.modelStatus.setLoading()
-        self.uploadButton.setEnabled(False)
-        self.screenshotButton.setEnabled(False)
+        # self.uploadButton.setEnabled(False)
+        # self.screenshotButton.setEnabled(False)
 
         self.overlay = None  # 用于存储截图覆盖层实例
         self.original_pixmap = None  # 保存原始（未缩放）的截图或上传图片
@@ -217,7 +220,7 @@ class MainWindow(QMainWindow):
         初始化窗口设置
         """
         self.resize(1000, 800)
-        self.setWindowTitle("FreeTex - 免费的智能公式识别神器")
+        self.setWindowTitle("FreeTexKilin")
 
         icon_path = "resources/images/icon.ico"
         if os.path.exists(icon_path):
@@ -303,14 +306,14 @@ class MainWindow(QMainWindow):
         buttonLayout.setSpacing(10)
 
         # 上传图片按钮
-        self.uploadButton = FluentPushButton("上传图片", self.centralWidget)
-        self.uploadButton.setIcon(FIF.PHOTO)
-        self.uploadButton.clicked.connect(self.uploadImage)
+        # self.uploadButton = FluentPushButton("上传图片", self.centralWidget)
+        # self.uploadButton.setIcon(FIF.PHOTO)
+        # self.uploadButton.clicked.connect(self.uploadImage)
 
         # 截图按钮
-        self.screenshotButton = FluentPushButton("截图", self.centralWidget)
-        self.screenshotButton.setIcon(FIF.CUT)
-        self.screenshotButton.clicked.connect(self.start_screenshot_process)
+        # self.screenshotButton = FluentPushButton("截图", self.centralWidget)
+        # self.screenshotButton.setIcon(FIF.CUT)
+        # self.screenshotButton.clicked.connect(self.start_screenshot_process)
 
         # 复制识别结果(Latex) 按钮
         self.copyButton = FluentPushButton("复制识别结果(Latex)", self.centralWidget)
@@ -323,6 +326,13 @@ class MainWindow(QMainWindow):
         self.copyWordButton.setIcon(FIF.DOCUMENT)  # 使用文档图标
         self.copyWordButton.clicked.connect(self.copy_mathml_result)
         self.copyWordButton.setEnabled(False)  # 初始禁用
+        
+        # 显示或控制图片是否反转颜色
+        self.reverseButton = SwitchButton()
+        self.reverseButton.setOnText("反转图片颜色")
+        self.reverseButton.setOffText("原图片")
+        self.reverseButton.checkedChanged.connect(self.reparse_img)
+        self.reverseButton.lastState = False
 
         # 添加LaTeX导出选项
         self.exportOptionsLayout = QHBoxLayout()
@@ -339,10 +349,11 @@ class MainWindow(QMainWindow):
         self.exportOptionsLayout.addWidget(self.exportComboBox)
 
         # 添加按钮到布局
-        buttonLayout.addWidget(self.uploadButton)
-        buttonLayout.addWidget(self.screenshotButton)
+        # buttonLayout.addWidget(self.uploadButton)
+        # buttonLayout.addWidget(self.screenshotButton)
         buttonLayout.addWidget(self.copyWordButton)
         buttonLayout.addWidget(self.copyButton)
+        buttonLayout.addWidget(self.reverseButton)
         buttonLayout.addStretch(1)
         buttonLayout.addLayout(self.exportOptionsLayout)
 
@@ -370,14 +381,14 @@ class MainWindow(QMainWindow):
         self.logger.info(f"接收到model_loaded信号. 设备: {device_info}")
         if "失败" in device_info:
             self.modelStatus.setLoadingFailed(device_info)
-            self.uploadButton.setEnabled(False)
-            self.screenshotButton.setEnabled(False)
+            # self.uploadButton.setEnabled(False)
+            # self.screenshotButton.setEnabled(False)
             tooltip_text = f"模型加载失败: {device_info}"
             tooltip_state = False
         else:
             self.modelStatus.setLoaded(device_info)
-            self.uploadButton.setEnabled(True)
-            self.screenshotButton.setEnabled(True)
+            # self.uploadButton.setEnabled(True)
+            # self.screenshotButton.setEnabled(True)
             self.copyButton.setEnabled(True)
             tooltip_text = f"模型加载完成: {device_info}"
             tooltip_state = True
@@ -389,84 +400,84 @@ class MainWindow(QMainWindow):
         tooltip.show()
         tooltip.move(self.width() - tooltip.width() - 20, 20)
 
-    def uploadImage(self):
-        """
-        上传图片功能。
-        打开文件对话框让用户选择图片，并在界面上显示。
-        """
-        fileName, _ = QFileDialog.getOpenFileName(
-            self,
-            "选择图片",
-            ".",
-            "Image Files (*.png *.jpg *.bmp *.jpeg);;All Files (*)",
-        )
-        if fileName:
-            pixmap = QPixmap(fileName)
-            if not pixmap.isNull():
-                self.logger.info(f"上传图片: {fileName}, 大小: {pixmap.size()}")
-                QTimer.singleShot(100, lambda: self.display_result_pixmap(pixmap))
-            else:
-                self.logger.error(f"无法加载图片: {fileName}")
-                self.display_result_pixmap(QPixmap())
-                self.latexEdit.setText("错误：无法加载图片")
-                self.imageLabel.setText("错误：无法加载图片")
+    # def uploadImage(self):
+    #     """
+    #     上传图片功能。
+    #     打开文件对话框让用户选择图片，并在界面上显示。
+    #     """
+    #     fileName, _ = QFileDialog.getOpenFileName(
+    #         self,
+    #         "选择图片",
+    #         ".",
+    #         "Image Files (*.png *.jpg *.bmp *.jpeg);;All Files (*)",
+    #     )
+    #     if fileName:
+    #         pixmap = QPixmap(fileName)
+    #         if not pixmap.isNull():
+    #             self.logger.info(f"上传图片: {fileName}, 大小: {pixmap.size()}")
+    #             QTimer.singleShot(100, lambda: self.display_result_pixmap(pixmap))
+    #         else:
+    #             self.logger.error(f"无法加载图片: {fileName}")
+    #             self.display_result_pixmap(QPixmap())
+    #             self.latexEdit.setText("错误：无法加载图片")
+    #             self.imageLabel.setText("错误：无法加载图片")
 
-    def start_screenshot_process(self):
-        """
-        开始截图流程 - 确保主窗口完全隐藏后再显示截图覆盖层
-        """
-        self.logger.info("开始截图流程...")
-        self.hide()
-        QTimer.singleShot(200, self.create_and_show_overlay)
+    # def start_screenshot_process(self):
+    #     """
+    #     开始截图流程 - 确保主窗口完全隐藏后再显示截图覆盖层
+    #     """
+    #     self.logger.info("开始截图流程...")
+    #     self.hide()
+    #     QTimer.singleShot(200, self.create_and_show_overlay)
 
-    def create_and_show_overlay(self):
-        """
-        创建并显示截图覆盖层，确保覆盖层获得焦点
-        """
-        self.logger.info("创建截图覆盖层...")
-        if self.overlay is not None:
-            self.overlay.deleteLater()
-            self.overlay = None
+    # def create_and_show_overlay(self):
+    #     """
+    #     创建并显示截图覆盖层，确保覆盖层获得焦点
+    #     """
+    #     self.logger.info("创建截图覆盖层...")
+    #     if self.overlay is not None:
+    #         self.overlay.deleteLater()
+    #         self.overlay = None
+    #
+    #     self.overlay = ScreenshotOverlay()
+    #     self.overlay.screenshot_taken.connect(self.handle_screenshot_result)
+    #     self.overlay.screenshot_cancelled.connect(self.handle_screenshot_cancelled)
+    #
+    #     if self.overlay.full_screenshot is None:
+    #         self.logger.warning("截图捕获失败或取消")
+    #         self.show_and_activate_main_window()
+    #         self.imageLabel.setText("截图失败或取消")
+    #         self.latexEdit.setText("截图失败或取消")
+    #         self.overlay = None
+    #         return
+    #
+    #     self.logger.info("显示截图覆盖层...")
+    #     self.overlay.show()
+    #     self.overlay.activateWindow()
+    #     self.overlay.raise_()
 
-        self.overlay = ScreenshotOverlay()
-        self.overlay.screenshot_taken.connect(self.handle_screenshot_result)
-        self.overlay.screenshot_cancelled.connect(self.handle_screenshot_cancelled)
+    # def handle_screenshot_cancelled(self):
+    #     """处理截图取消事件"""
+    #     self.logger.info("截图已取消")
+    #     self.show_and_activate_main_window()
+    #     self.imageLabel.setText("截图已取消")
+    #     self.latexEdit.setText("截图已取消")
+    #     if self.overlay:
+    #         self.overlay.deleteLater()
+    #         self.overlay = None
 
-        if self.overlay.full_screenshot is None:
-            self.logger.warning("截图捕获失败或取消")
-            self.show_and_activate_main_window()
-            self.imageLabel.setText("截图失败或取消")
-            self.latexEdit.setText("截图失败或取消")
-            self.overlay = None
-            return
-
-        self.logger.info("显示截图覆盖层...")
-        self.overlay.show()
-        self.overlay.activateWindow()
-        self.overlay.raise_()
-
-    def handle_screenshot_cancelled(self):
-        """处理截图取消事件"""
-        self.logger.info("截图已取消")
-        self.show_and_activate_main_window()
-        self.imageLabel.setText("截图已取消")
-        self.latexEdit.setText("截图已取消")
-        if self.overlay:
-            self.overlay.deleteLater()
-            self.overlay = None
-
-    def handle_screenshot_result(self, pixmap):
-        """
-        处理从ScreenshotOverlay返回的截图结果
-        """
-        self.logger.info(
-            f"接收到截图结果. 图片有效: {not pixmap.isNull()}, 大小: {pixmap.size()}"
-        )
-        QTimer.singleShot(100, self.show_and_activate_main_window)
-        QTimer.singleShot(150, lambda: self.display_result_pixmap(pixmap))
-
-        if self.overlay:
-            pass
+    # def handle_screenshot_result(self, pixmap):
+    #     """
+    #     处理从ScreenshotOverlay返回的截图结果
+    #     """
+    #     self.logger.info(
+    #         f"接收到截图结果. 图片有效: {not pixmap.isNull()}, 大小: {pixmap.size()}"
+    #     )
+    #     QTimer.singleShot(100, self.show_and_activate_main_window)
+    #     QTimer.singleShot(150, lambda: self.display_result_pixmap(pixmap))
+    #
+    #     if self.overlay:
+    #         pass
 
     def show_and_activate_main_window(self):
         """显示并激活主窗口"""
@@ -497,7 +508,7 @@ class MainWindow(QMainWindow):
             self._scale_and_display_image()
             if self.local_processor.model is not None:
                 self.latexEdit.setText("正在识别图像...")
-                self.process_request.emit(pixmap)
+                self.process_request.emit(pixmap, 0)
             else:
                 self.latexEdit.setText("模型尚未加载，请稍候...")
                 self.logger.warning("无法处理图片: 模型尚未加载完成")
@@ -575,18 +586,18 @@ class MainWindow(QMainWindow):
         self.logger.info(f"从配置加载快捷键: {shortcuts}")
 
         # 截图快捷键
-        screenshot_seq = shortcuts.get("screenshot", "Ctrl+Alt+Q")
-        self.logger.debug(f"截图快捷键: {screenshot_seq}")
-        self.shortcut_screenshot = QShortcut(QKeySequence(screenshot_seq), self)
-        self.shortcut_screenshot.setEnabled(True)
-        self.shortcut_screenshot.activated.connect(self.start_screenshot_process)
+        # screenshot_seq = shortcuts.get("screenshot", "Ctrl+Alt+Q")
+        # self.logger.debug(f"截图快捷键: {screenshot_seq}")
+        # self.shortcut_screenshot = QShortcut(QKeySequence(screenshot_seq), self)
+        # self.shortcut_screenshot.setEnabled(True)
+        # self.shortcut_screenshot.activated.connect(self.start_screenshot_process)
 
         # 上传图片快捷键
-        upload_seq = shortcuts.get("upload", "Ctrl+U")
-        self.logger.debug(f"上传图片快捷键: {upload_seq}")
-        self.shortcut_upload = QShortcut(QKeySequence(upload_seq), self)
-        self.shortcut_upload.setEnabled(True)
-        self.shortcut_upload.activated.connect(self.uploadImage)
+        # upload_seq = shortcuts.get("upload", "Ctrl+U")
+        # self.logger.debug(f"上传图片快捷键: {upload_seq}")
+        # self.shortcut_upload = QShortcut(QKeySequence(upload_seq), self)
+        # self.shortcut_upload.setEnabled(True)
+        # self.shortcut_upload.activated.connect(self.uploadImage)
 
         # 初始化剪切板处理器
         self.clipboard_handler = ClipboardHandler(self)
@@ -609,7 +620,27 @@ class MainWindow(QMainWindow):
             self.logger.warning("剪切板中的图片无效")
             self.latexEdit.setText("剪切板中的图片无效")
             self.imageLabel.setText("剪切板中的图片无效")
-
+    
+    def on_reverse_img(self, reimg:bool):
+        """是否反转了图片"""
+        self.reverseButton.checkedChanged.disconnect()
+        self.reverseButton.setChecked(reimg)
+        self.reverseButton.checkedChanged.connect(self.reparse_img)
+        self.reverseButton.lastState = reimg
+    
+    def reparse_img(self, checked:bool):
+        """明确控制图片是否反转，设计为自动之后的手动调整"""
+        if self.original_pixmap.isNull():
+            return
+        if checked:
+            reverse = 1
+        else:
+            reverse = 2
+        pixmap = self.original_pixmap.copy()
+        if self.local_processor.model is not None:
+            self.latexEdit.setText("正在识别图像...")
+            self.process_request.emit(pixmap, reverse)
+    
     def on_recognition_finished(self, result):
         """识别完成后的回调函数"""
         self.logger.info(f"接收到识别结果: {result}")
@@ -649,12 +680,6 @@ class MainWindow(QMainWindow):
         if self.tray_icon.isVisible():
             event.ignore()  # 忽略关闭事件
             self.hide()  # 隐藏主窗口
-            self.tray_icon.showMessage(
-                "FreeTex",
-                "程序已最小化到系统托盘，双击图标可以重新打开窗口",
-                QSystemTrayIcon.Information,
-                2000,
-            )
         else:
             # 如果托盘图标不可见，则正常关闭
             self.logger.info("正在关闭主窗口，停止处理器线程...")
@@ -767,13 +792,7 @@ class MainWindow(QMainWindow):
         self.tray_icon.show()
 
         # 显示提示信息
-        self.tray_icon.setToolTip("FreeTex - 智能公式识别神器")
-        self.tray_icon.showMessage(
-            "FreeTex",
-            "程序已最小化到系统托盘，双击图标可以重新打开窗口",
-            QSystemTrayIcon.Information,
-            2000,
-        )
+        self.tray_icon.setToolTip("FreeTexKilin")
 
     def show_from_tray(self):
         """从托盘显示窗口"""
@@ -828,6 +847,7 @@ class App(QApplication):
 
 
 if __name__ == "__main__":
+    QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     app = App(sys.argv)
     app.run()
     sys.exit(app.exec_())

@@ -4,7 +4,7 @@ import argparse
 import logging
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import QObject, pyqtSignal, QBuffer, QByteArray, QIODevice
-from PIL import Image
+from PIL import Image, ImageFilter, ImageOps, ImageStat
 from io import BytesIO
 
 warnings.filterwarnings("ignore")
@@ -20,6 +20,7 @@ class LocalProcessor(QObject):
 
     finished = pyqtSignal(str)  # 识别完成信号
     model_loaded = pyqtSignal(str)  # 模型加载完成信号，附带设备信息
+    reverse_img = pyqtSignal(bool)# 是否对图片进行了颜色反转
 
     def __init__(self, cfg_path):
         """
@@ -107,8 +108,9 @@ class LocalProcessor(QObject):
             self.logger.error(error_msg)
             self.finished.emit(error_msg)
 
-    def process_pixmap(self, pixmap: QPixmap):
+    def process_pixmap(self, pixmap: QPixmap, reverse: int):
         """直接处理QPixmap对象"""
+        # 0: auto, 1: reverse; 2: no reverse
         try:
             if self.model is None or self.vis_processor is None:
                 self.logger.warning("模型尚未加载完成，无法处理QPixmap")
@@ -172,6 +174,21 @@ class LocalProcessor(QObject):
             buffer = BytesIO(byte_array_data)
             pil_image = Image.open(buffer)
             pil_image = pil_image.convert("RGB")
+            if reverse == 0:
+                # 自动判断
+                image = pil_image.convert('L')
+                mean_pixel = int(ImageStat.Stat(image).mean[0])
+                histogram = image.histogram()
+                dark_pixels = sum(histogram[:mean_pixel])
+                light_pixels = sum(histogram[mean_pixel:])
+                if dark_pixels > light_pixels:
+                    self.logger.info(f"black:{dark_pixels} white:{light_pixels} 反转文底颜色")
+                    pil_image = ImageOps.invert(pil_image)
+                    self.reverse_img.emit(True)
+                else:
+                    self.reverse_img.emit(False)
+            elif reverse == 1:
+                pil_image = ImageOps.invert(pil_image)
 
             self.logger.debug(
                 f"QPixmap已通过QBuffer转换为PIL Image。尺寸: {pil_image.size}, 模式: {pil_image.mode}"

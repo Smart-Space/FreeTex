@@ -38,7 +38,7 @@ from PyQt5.QtWidgets import (
     QSizePolicy,
     QShortcut,
     QSystemTrayIcon,
-    QMenu,
+    QAction,
 )
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 from tools.clipboard_handler import ClipboardHandler
@@ -53,6 +53,7 @@ from qfluentwidgets import (
     TextEdit,
     StateToolTip,
     ComboBox,
+    SystemTrayMenu,
 )
 
 # 软件版本号常量
@@ -305,16 +306,6 @@ class MainWindow(QMainWindow):
         buttonLayout = QHBoxLayout()
         buttonLayout.setSpacing(10)
 
-        # 上传图片按钮
-        # self.uploadButton = FluentPushButton("上传图片", self.centralWidget)
-        # self.uploadButton.setIcon(FIF.PHOTO)
-        # self.uploadButton.clicked.connect(self.uploadImage)
-
-        # 截图按钮
-        # self.screenshotButton = FluentPushButton("截图", self.centralWidget)
-        # self.screenshotButton.setIcon(FIF.CUT)
-        # self.screenshotButton.clicked.connect(self.start_screenshot_process)
-
         # 复制识别结果(Latex) 按钮
         self.copyButton = FluentPushButton("复制识别结果(Latex)", self.centralWidget)
         self.copyButton.setIcon(FIF.COPY)  # 使用复制图标
@@ -399,85 +390,6 @@ class MainWindow(QMainWindow):
         tooltip.setState(tooltip_state)
         tooltip.show()
         tooltip.move(self.width() - tooltip.width() - 20, 20)
-
-    # def uploadImage(self):
-    #     """
-    #     上传图片功能。
-    #     打开文件对话框让用户选择图片，并在界面上显示。
-    #     """
-    #     fileName, _ = QFileDialog.getOpenFileName(
-    #         self,
-    #         "选择图片",
-    #         ".",
-    #         "Image Files (*.png *.jpg *.bmp *.jpeg);;All Files (*)",
-    #     )
-    #     if fileName:
-    #         pixmap = QPixmap(fileName)
-    #         if not pixmap.isNull():
-    #             self.logger.info(f"上传图片: {fileName}, 大小: {pixmap.size()}")
-    #             QTimer.singleShot(100, lambda: self.display_result_pixmap(pixmap))
-    #         else:
-    #             self.logger.error(f"无法加载图片: {fileName}")
-    #             self.display_result_pixmap(QPixmap())
-    #             self.latexEdit.setText("错误：无法加载图片")
-    #             self.imageLabel.setText("错误：无法加载图片")
-
-    # def start_screenshot_process(self):
-    #     """
-    #     开始截图流程 - 确保主窗口完全隐藏后再显示截图覆盖层
-    #     """
-    #     self.logger.info("开始截图流程...")
-    #     self.hide()
-    #     QTimer.singleShot(200, self.create_and_show_overlay)
-
-    # def create_and_show_overlay(self):
-    #     """
-    #     创建并显示截图覆盖层，确保覆盖层获得焦点
-    #     """
-    #     self.logger.info("创建截图覆盖层...")
-    #     if self.overlay is not None:
-    #         self.overlay.deleteLater()
-    #         self.overlay = None
-    #
-    #     self.overlay = ScreenshotOverlay()
-    #     self.overlay.screenshot_taken.connect(self.handle_screenshot_result)
-    #     self.overlay.screenshot_cancelled.connect(self.handle_screenshot_cancelled)
-    #
-    #     if self.overlay.full_screenshot is None:
-    #         self.logger.warning("截图捕获失败或取消")
-    #         self.show_and_activate_main_window()
-    #         self.imageLabel.setText("截图失败或取消")
-    #         self.latexEdit.setText("截图失败或取消")
-    #         self.overlay = None
-    #         return
-    #
-    #     self.logger.info("显示截图覆盖层...")
-    #     self.overlay.show()
-    #     self.overlay.activateWindow()
-    #     self.overlay.raise_()
-
-    # def handle_screenshot_cancelled(self):
-    #     """处理截图取消事件"""
-    #     self.logger.info("截图已取消")
-    #     self.show_and_activate_main_window()
-    #     self.imageLabel.setText("截图已取消")
-    #     self.latexEdit.setText("截图已取消")
-    #     if self.overlay:
-    #         self.overlay.deleteLater()
-    #         self.overlay = None
-
-    # def handle_screenshot_result(self, pixmap):
-    #     """
-    #     处理从ScreenshotOverlay返回的截图结果
-    #     """
-    #     self.logger.info(
-    #         f"接收到截图结果. 图片有效: {not pixmap.isNull()}, 大小: {pixmap.size()}"
-    #     )
-    #     QTimer.singleShot(100, self.show_and_activate_main_window)
-    #     QTimer.singleShot(150, lambda: self.display_result_pixmap(pixmap))
-    #
-    #     if self.overlay:
-    #         pass
 
     def show_and_activate_main_window(self):
         """显示并激活主窗口"""
@@ -584,20 +496,6 @@ class MainWindow(QMainWindow):
         # 从配置读取所有快捷键
         shortcuts = self.config.get("shortcuts", {})
         self.logger.info(f"从配置加载快捷键: {shortcuts}")
-
-        # 截图快捷键
-        # screenshot_seq = shortcuts.get("screenshot", "Ctrl+Alt+Q")
-        # self.logger.debug(f"截图快捷键: {screenshot_seq}")
-        # self.shortcut_screenshot = QShortcut(QKeySequence(screenshot_seq), self)
-        # self.shortcut_screenshot.setEnabled(True)
-        # self.shortcut_screenshot.activated.connect(self.start_screenshot_process)
-
-        # 上传图片快捷键
-        # upload_seq = shortcuts.get("upload", "Ctrl+U")
-        # self.logger.debug(f"上传图片快捷键: {upload_seq}")
-        # self.shortcut_upload = QShortcut(QKeySequence(upload_seq), self)
-        # self.shortcut_upload.setEnabled(True)
-        # self.shortcut_upload.activated.connect(self.uploadImage)
 
         # 初始化剪切板处理器
         self.clipboard_handler = ClipboardHandler(self)
@@ -781,11 +679,9 @@ class MainWindow(QMainWindow):
         self.tray_icon.setIcon(self.windowIcon())
 
         # 创建托盘菜单
-        tray_menu = QMenu()
-        show_action = tray_menu.addAction("显示主窗口")
-        show_action.triggered.connect(self.show_from_tray)
-        quit_action = tray_menu.addAction("退出")
-        quit_action.triggered.connect(self.quit_app)
+        tray_menu = SystemTrayMenu()
+        show_action = tray_menu.addAction(QAction("显示", triggered=lambda : self.show_from_tray()))
+        quit_action = tray_menu.addAction(QAction("退出", triggered=lambda : self.quit_app()))
 
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.activated.connect(self.tray_icon_activated)

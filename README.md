@@ -2,6 +2,8 @@
 
 **Forked from https://github.com/zstar1003/FreeTex.**
 
+https://github.com/user-attachments/assets/50c02669-c63a-4e44-8d6b-61fdc60c245f
+
 # 改进与变更
 
 ## 删除内置截图与上传图片功能
